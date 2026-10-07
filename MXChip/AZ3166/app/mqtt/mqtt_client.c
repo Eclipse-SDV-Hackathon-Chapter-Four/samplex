@@ -13,6 +13,7 @@
 #include "cloud_config.h"
 #include "mqtt_client.h"
 #include "nx_api.h"
+#include "powertrain_display.h"
 #include "telemetry.h"
 #include "wwd_networking.h"
 
@@ -26,8 +27,8 @@
 static ULONG mqtt_client_stack[MQTT_CLIENT_STACK_SIZE / sizeof(ULONG)];
 
 /* Declare buffers to hold message and topic. */
-static UCHAR message_buffer[NXD_MQTT_MAX_MESSAGE_LENGTH];
-static UCHAR topic_buffer[NXD_MQTT_MAX_TOPIC_NAME_LENGTH];
+static UCHAR message_buffer[NXD_MQTT_MAX_MESSAGE_LENGTH + 1];
+static UCHAR topic_buffer[NXD_MQTT_MAX_TOPIC_NAME_LENGTH + 1];
 
 
 /* Declare the MQTT client control block. */
@@ -45,7 +46,7 @@ static void send_message(){
     UINT status;
     
     /* Publish a message with QoS Level 1. */
-    char buffer[160] = {0};
+    char buffer[TELEMETRY_BUFFER_SIZE] = {0};
     get_current_telemetry_string(buffer);
     //printf("%s", buffer);
 
@@ -63,17 +64,32 @@ static void send_message(){
 static void receive_message(){
     UINT status;
     UINT topic_length, message_length;
-    ULONG message_sent = 0;
 
-    status = nxd_mqtt_client_message_get(&mqtt_client, topic_buffer, sizeof(topic_buffer), &topic_length,
-                                        message_buffer, sizeof(message_buffer), &message_length);
-    printf("Received message and status: %d \r\n", status);
-    if (status == NXD_MQTT_SUCCESS){
-        topic_buffer[topic_length] = 0;
-        message_buffer[message_length] = 0;
-        message_sent = message_buffer[0];
-        status = tx_queue_send(&mqtt_queue, &message_sent, TX_WAIT_FOREVER);
+    /* Notifications may cover several messages; drain them all. Leave room
+     * for terminators when receiving a maximum-length topic or payload. */
+    while (1){
+        status = nxd_mqtt_client_message_get(&mqtt_client, topic_buffer, sizeof(topic_buffer) - 1, &topic_length,
+                                            message_buffer, sizeof(message_buffer) - 1, &message_length);
+        if (status == NXD_MQTT_NO_MESSAGE){
+            return;
+        }
+        if (status != NXD_MQTT_SUCCESS){
+            printf("MQTT receive failed with code: %d\r\n", status);
+            return;
+        }
+        topic_buffer[topic_length] = '\0';
+        message_buffer[message_length] = '\0';
         printf("Topic: %s, Message: %s\r\n", topic_buffer, message_buffer);
+
+        if (topic_length == STRLEN(MQTT_SUBSCRIBE_TOPIC) &&
+            memcmp(topic_buffer, MQTT_SUBSCRIBE_TOPIC, topic_length) == 0){
+            tx_mutex_get(&mqtt_i2c_mutex, TX_WAIT_FOREVER);
+            bool displayed = powertrain_display_update((const char *)message_buffer, message_length);
+            tx_mutex_put(&mqtt_i2c_mutex);
+            if (!displayed){
+                printf("Ignoring powertrain message without a valid Mode string\r\n");
+            }
+        }
     }
 }
 
@@ -85,7 +101,6 @@ static VOID client_notify_func(NXD_MQTT_CLIENT *client_ptr, UINT number_of_messa
     return;
 }
 
-static ULONG error_count;
 static void mqtt_thread_work(NX_IP *ip_ptr, NX_PACKET_POOL *pool_ptr){
     UINT status;
     NXD_ADDRESS server_ip;
@@ -99,7 +114,7 @@ static void mqtt_thread_work(NX_IP *ip_ptr, NX_PACKET_POOL *pool_ptr){
 
     if (status){
         printf("Error in creating MQTT client: 0x%02x\n", status);
-        error_count++;
+        return;
     }
 
     printf(" MQTT client created\r\n");
@@ -107,20 +122,24 @@ static void mqtt_thread_work(NX_IP *ip_ptr, NX_PACKET_POOL *pool_ptr){
     /* Register the disconnect notification function. */
     nxd_mqtt_client_disconnect_notify_set(&mqtt_client, client_disconnect_func);
 
-    /* Create an event flag for this demo. */
-    status = tx_event_flags_create(&mqtt_app_flag, "MQTT event");
-    if (status)
-        error_count++;
+    /* Install the callback before subscribing: retained messages can arrive
+     * as soon as the broker receives the subscription. */
+    status = nxd_mqtt_client_receive_notify_set(&mqtt_client, client_notify_func);
+    if (status != NXD_MQTT_SUCCESS){
+        printf("MQTT receive notify setup failed with code: %d\r\n", status);
+        return;
+    }
 
     server_ip.nxd_ip_version = 4;
     server_ip.nxd_ip_address.v4 = MQTT_LOCAL_BROKER_IP;
 
-    /* Start the connection to the server. */
+    /* Connect over plain MQTT without setting a username or password. */
 
-    status = nxd_mqtt_client_connect(&mqtt_client, &server_ip, NXD_MQTT_PORT,
+    status = nxd_mqtt_client_connect(&mqtt_client, &server_ip, MQTT_BROKER_PORT,
                                      MQTT_KEEP_ALIVE_TIMER, 0, NX_WAIT_FOREVER);
     if (status != NXD_MQTT_SUCCESS){
                 printf("MQTT connect failed with code: %d\r\n", status);
+                return;
     }
     else{
         printf("MQTT Client connected.\r\n");
@@ -130,18 +149,10 @@ static void mqtt_thread_work(NX_IP *ip_ptr, NX_PACKET_POOL *pool_ptr){
     status = nxd_mqtt_client_subscribe(&mqtt_client, MQTT_SUBSCRIBE_TOPIC, STRLEN(MQTT_SUBSCRIBE_TOPIC), QOS0);
     if (status != NXD_MQTT_SUCCESS){
                 printf("MQTT subscribe failed with code: %d\r\n", status);
+                return;
     }
     else{
         printf("Subscribed to topic %s.\r\n", MQTT_SUBSCRIBE_TOPIC);
-    }
-
-    /* Set the receive notify function. */
-    status = nxd_mqtt_client_receive_notify_set(&mqtt_client, client_notify_func);
-    if (status != NXD_MQTT_SUCCESS){
-                printf("MQTT receive notify setup failed with code: %d\r\n", status);
-    }
-    else{
-        printf("MQTT Receive notify function set.\r\n");
     }
 
     /* Now wait for the broker to publish the message. */
@@ -153,7 +164,7 @@ static void mqtt_thread_work(NX_IP *ip_ptr, NX_PACKET_POOL *pool_ptr){
             receive_message();
 
         }
-        else if (events & MQTT_MESSAGE_READY){
+        if (events & MQTT_MESSAGE_READY){
             send_message();
         }
     }
@@ -171,6 +182,10 @@ void mqtt_thread_entry(ULONG parameter){
     UINT status;
 
     printf("Starting Eclipse ThreadX MQTT thread\r\n\r\n");
+
+    tx_mutex_get(&mqtt_i2c_mutex, TX_WAIT_FOREVER);
+    powertrain_display_waiting();
+    tx_mutex_put(&mqtt_i2c_mutex);
 
     // Initialize the network
     if ((status = wwd_network_init(WIFI_SSID, WIFI_PASSWORD, WIFI_MODE))){

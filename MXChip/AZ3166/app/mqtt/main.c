@@ -30,32 +30,32 @@
 
 #define ECLIPSETX_THREAD_STACK_SIZE 4096
 #define ECLIPSETX_THREAD_PRIORITY   4
-#define BYTE_POOL_SIZE              1024
-#define QUEUE_SIZE                  16
-
-
-TX_QUEUE mqtt_queue;
+TX_MUTEX mqtt_i2c_mutex;
 TX_EVENT_FLAGS_GROUP mqtt_app_flag;
-TX_BYTE_POOL byte_pool;
 TX_THREAD telemetry_thread;
 TX_THREAD mqtt_thread;
 ULONG telemetry_thread_stack[ECLIPSETX_THREAD_STACK_SIZE / sizeof(ULONG)];
 ULONG mqtt_thread_stack[ECLIPSETX_THREAD_STACK_SIZE / sizeof(ULONG)];
-TX_EVENT_FLAGS_GROUP mqtt_app_flag;
 
 void tx_application_define(void* first_unused_memory)
 {
     systick_interval_set(TX_TIMER_TICKS_PER_SECOND);
-    CHAR *pointer;
-
-    /* Allocate the message queue. */
-    tx_byte_allocate(&byte_pool, (VOID **)&pointer, QUEUE_SIZE*sizeof(ULONG), TX_NO_WAIT);
-
-    /* Create the message queue shared by the telemetry and MQTT threads */
-    tx_queue_create(&mqtt_queue, "Shared queue", TX_1_ULONG, pointer, QUEUE_SIZE*sizeof(ULONG));
+    /* Both threads need these objects before they can start. */
+    UINT status = tx_event_flags_create(&mqtt_app_flag, "MQTT event");
+    if (status != TX_SUCCESS)
+    {
+        printf("ERROR: MQTT event creation failed (0x%02x)\r\n", status);
+        return;
+    }
+    status = tx_mutex_create(&mqtt_i2c_mutex, "MQTT sensor/display I2C", TX_INHERIT);
+    if (status != TX_SUCCESS)
+    {
+        printf("ERROR: I2C mutex creation failed (0x%02x)\r\n", status);
+        return;
+    }
 
     // Create Telemetry thread
-    UINT status = tx_thread_create(&telemetry_thread,
+    status = tx_thread_create(&telemetry_thread,
         "Eclipse ThreadX telemetry Thread",
         telemetry_thread_entry,
         0,

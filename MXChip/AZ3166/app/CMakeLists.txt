@@ -60,6 +60,7 @@ elseif(APP_CONFIG STREQUAL "mqtt")
         ${COMMON_DIR}/screen.c
         ${CONFIG_DIR}/telemetry.c
         ${CONFIG_DIR}/mqtt_client.c
+        ${CONFIG_DIR}/powertrain_display.c
         ${CONFIG_DIR}/main.c
         ${CONFIG_DIR}/cloud_config.h
     )
