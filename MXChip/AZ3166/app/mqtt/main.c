@@ -1,6 +1,7 @@
 /* 
  * Copyright (c) Microsoft
  * Copyright (c) 2024 Eclipse Foundation
+ * Copyright (c) 2026 Eclipse ThreadX contributors
  * 
  *  This program and the accompanying materials are made available 
  *  under the terms of the MIT license which is available at
@@ -13,7 +14,7 @@
  *     Frédéric Desbiens - 2024 version.
  *     Frédéric Desbiens - Added telemetry and MQTT.
  */
-
+// Portions of this file were generated with AI assistance.
 #include <stdio.h>
 
 #include "tx_api.h"
@@ -30,12 +31,13 @@
 
 #define ECLIPSETX_THREAD_STACK_SIZE 4096
 #define ECLIPSETX_THREAD_PRIORITY   4
+#define MQTT_APP_THREAD_STACK_SIZE 8192
 TX_MUTEX mqtt_i2c_mutex;
 TX_EVENT_FLAGS_GROUP mqtt_app_flag;
 TX_THREAD telemetry_thread;
 TX_THREAD mqtt_thread;
 ULONG telemetry_thread_stack[ECLIPSETX_THREAD_STACK_SIZE / sizeof(ULONG)];
-ULONG mqtt_thread_stack[ECLIPSETX_THREAD_STACK_SIZE / sizeof(ULONG)];
+ULONG mqtt_thread_stack[MQTT_APP_THREAD_STACK_SIZE / sizeof(ULONG)];
 
 void tx_application_define(void* first_unused_memory)
 {
@@ -77,7 +79,7 @@ void tx_application_define(void* first_unused_memory)
         mqtt_thread_entry,
         0,
         mqtt_thread_stack,
-        ECLIPSETX_THREAD_STACK_SIZE,
+        MQTT_APP_THREAD_STACK_SIZE,
         ECLIPSETX_THREAD_PRIORITY,
         ECLIPSETX_THREAD_PRIORITY,
         TX_NO_TIME_SLICE,

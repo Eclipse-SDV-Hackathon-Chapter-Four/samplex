@@ -1,6 +1,7 @@
 /* 
  * Copyright (c) Microsoft
  * Copyright (c) 2024 Eclipse Foundation
+ * Copyright (c) 2026 Eclipse ThreadX contributors
  * 
  *  This program and the accompanying materials are made available 
  *  under the terms of the MIT license which is available at
@@ -12,6 +13,7 @@
  *     Microsoft         - Initial version
  *     Frédéric Desbiens - 2024 version.
  */
+// Portions of this file were generated with AI assistance.
 
 #ifndef _CLOUD_CONFIG_H
 #define _CLOUD_CONFIG_H
@@ -30,8 +32,8 @@ typedef enum
 // WiFi connection config
 // ----------------------------------------------------------------------------
 #define HOSTNAME      "eclipse-threadx"  //Change to unique hostname.
-#define WIFI_SSID     "Hackathon-Team-03"
-#define WIFI_PASSWORD "SDVTeam-123456" 
+#define WIFI_SSID     "SDV-imx95-A"
+#define WIFI_PASSWORD "eclipsesdv"
 #define WIFI_MODE     WPA2_PSK_AES
 
 // ----------------------------------------------------------------------------
@@ -39,7 +41,7 @@ typedef enum
 // ----------------------------------------------------------------------------
 #define MQTT_CLIENT_NAME     "ThreadXAZ3166" //Change to unique name.
 // imx95-a.local: use its IPv4 address directly; no username or password required.
-#define MQTT_LOCAL_BROKER_IP (IP_ADDRESS(192, 168, 103, 191))
+#define MQTT_LOCAL_BROKER_IP (IP_ADDRESS(192, 168, 60, 1))
 #define MQTT_BROKER_PORT      1883
 #define MQTT_SUBSCRIBE_TOPIC "vehicle/powertrain/mode"
 #define MQTT_PUBLISH_TOPIC   MQTT_CLIENT_NAME "/telemetry" 
