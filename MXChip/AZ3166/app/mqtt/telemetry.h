@@ -19,8 +19,6 @@
 #ifndef _TELEMETRY_H
 #define _TELEMETRY_H
 
-#define TELEMETRY_BUFFER_SIZE 256
-
 // Log telemetry if needed
 //#define LOG_TELEMETRY
 

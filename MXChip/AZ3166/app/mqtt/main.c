@@ -1,7 +1,6 @@
 /* 
  * Copyright (c) Microsoft
  * Copyright (c) 2024 Eclipse Foundation
- * Copyright (c) 2026 Eclipse ThreadX contributors
  * 
  *  This program and the accompanying materials are made available 
  *  under the terms of the MIT license which is available at
@@ -14,7 +13,7 @@
  *     Frédéric Desbiens - 2024 version.
  *     Frédéric Desbiens - Added telemetry and MQTT.
  */
-// Portions of this file were generated with AI assistance.
+
 #include <stdio.h>
 
 #include "tx_api.h"
@@ -31,33 +30,32 @@
 
 #define ECLIPSETX_THREAD_STACK_SIZE 4096
 #define ECLIPSETX_THREAD_PRIORITY   4
-#define MQTT_APP_THREAD_STACK_SIZE 8192
-TX_MUTEX mqtt_i2c_mutex;
+#define BYTE_POOL_SIZE              1024
+#define QUEUE_SIZE                  16
+
+
+TX_QUEUE mqtt_queue;
 TX_EVENT_FLAGS_GROUP mqtt_app_flag;
+TX_BYTE_POOL byte_pool;
 TX_THREAD telemetry_thread;
 TX_THREAD mqtt_thread;
 ULONG telemetry_thread_stack[ECLIPSETX_THREAD_STACK_SIZE / sizeof(ULONG)];
-ULONG mqtt_thread_stack[MQTT_APP_THREAD_STACK_SIZE / sizeof(ULONG)];
+ULONG mqtt_thread_stack[ECLIPSETX_THREAD_STACK_SIZE / sizeof(ULONG)];
+TX_EVENT_FLAGS_GROUP mqtt_app_flag;
 
 void tx_application_define(void* first_unused_memory)
 {
     systick_interval_set(TX_TIMER_TICKS_PER_SECOND);
-    /* Both threads need these objects before they can start. */
-    UINT status = tx_event_flags_create(&mqtt_app_flag, "MQTT event");
-    if (status != TX_SUCCESS)
-    {
-        printf("ERROR: MQTT event creation failed (0x%02x)\r\n", status);
-        return;
-    }
-    status = tx_mutex_create(&mqtt_i2c_mutex, "MQTT sensor/display I2C", TX_INHERIT);
-    if (status != TX_SUCCESS)
-    {
-        printf("ERROR: I2C mutex creation failed (0x%02x)\r\n", status);
-        return;
-    }
+    CHAR *pointer;
+
+    /* Allocate the message queue. */
+    tx_byte_allocate(&byte_pool, (VOID **)&pointer, QUEUE_SIZE*sizeof(ULONG), TX_NO_WAIT);
+
+    /* Create the message queue shared by the telemetry and MQTT threads */
+    tx_queue_create(&mqtt_queue, "Shared queue", TX_1_ULONG, pointer, QUEUE_SIZE*sizeof(ULONG));
 
     // Create Telemetry thread
-    status = tx_thread_create(&telemetry_thread,
+    UINT status = tx_thread_create(&telemetry_thread,
         "Eclipse ThreadX telemetry Thread",
         telemetry_thread_entry,
         0,
@@ -79,7 +77,7 @@ void tx_application_define(void* first_unused_memory)
         mqtt_thread_entry,
         0,
         mqtt_thread_stack,
-        MQTT_APP_THREAD_STACK_SIZE,
+        ECLIPSETX_THREAD_STACK_SIZE,
         ECLIPSETX_THREAD_PRIORITY,
         ECLIPSETX_THREAD_PRIORITY,
         TX_NO_TIME_SLICE,

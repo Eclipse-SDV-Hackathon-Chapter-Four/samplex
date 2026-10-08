@@ -26,6 +26,7 @@ static sensor_data current_sensor_data;
 // Telemetry output
 static const int TELEMETRY_ROWS        = 5;
 static const int TELEMETRY_ROW_SIZE    = 40;
+const int TELEMETRY_BUFFER_SIZE = 256;
 
 /* Function to compare two float arrays
  * Returns true if arrays are equal within the given tolerance, otherwise false.
@@ -107,8 +108,7 @@ void telemetry_thread_entry(ULONG parameter)
 
     while(1){
 
-        // Serialize sensor reads with OLED transfers on the same I2C bus.
-        tx_mutex_get(&mqtt_i2c_mutex, TX_WAIT_FOREVER);
+        // Acquire fresh data.
         lps22hb_t lps22hb_data = lps22hb_data_read();
         new_sensor_data.temperature_degC = lps22hb_data.temperature_degC;
         new_sensor_data.pressure_hPa = lps22hb_data.pressure_hPa;
@@ -122,15 +122,14 @@ void telemetry_thread_entry(ULONG parameter)
         memcpy(new_sensor_data.magnetic_mG, 
                lis2mdl_data.magnetic_mG,
                sizeof(lis2mdl_data.magnetic_mG));
-        tx_mutex_put(&mqtt_i2c_mutex);
 
         if (data_changed(&current_sensor_data, &new_sensor_data)){
             #ifdef LOG_TELEMETRY
                 printf("Telemetry changed.\r\n");
                 print_sensor_data(new_sensor_data);
             #endif
-            current_sensor_data = new_sensor_data;
             tx_event_flags_set(&mqtt_app_flag, MQTT_MESSAGE_READY, TX_OR);
+            current_sensor_data = new_sensor_data;
         }
         #ifdef LOG_TELEMETRY
         else{
